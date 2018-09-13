@@ -1,6 +1,7 @@
 use std::collections::hash_map::HashMap;
 use std::collections::HashSet;
 use std::fmt;
+use std::env;
 use std::io;
 use std::mem;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -236,7 +237,16 @@ impl<'a> JobQueue<'a> {
         //       reproducing rustc's styling of error messages which is
         //       currently a pretty big task. This is issue #5695.
         let mut error = None;
-        let mut progress = Progress::with_style("Building", cx.bcx.config);
+
+        let status_template: String = match env::var("CARGO_STATUS")  {
+            Ok(status_template) => { status_template }
+            Err(_) => {
+                // this is the default
+                 String::from("[%b] %s/%t%n") // [bar] started/total jobs
+             }
+        };
+
+        let mut progress = Progress::with_style("Building", &status_template, cx.bcx.config);
         let total = self.queue.len();
         loop {
             // Dequeue as much work as we can, learning about everything
@@ -285,7 +295,7 @@ impl<'a> JobQueue<'a> {
             let active_names = self.active.iter()
                 .map(Key::name_for_progress)
                 .collect::<Vec<_>>();
-            drop(progress.tick_now(count, total, active_names));
+            drop(progress.tick_now(count, total, &status_template, active_names));
             let event = self.rx.recv().unwrap();
             progress.clear();
 
