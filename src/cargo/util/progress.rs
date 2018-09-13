@@ -26,13 +26,12 @@ struct State<'cfg> {
 }
 
 struct Format {
-    style: ProgressStyle,
     max_width: usize,
     max_print: usize,
 }
 
 impl<'cfg> Progress<'cfg> {
-    pub fn with_style(name: &str, style: ProgressStyle, cfg: &'cfg Config) -> Progress<'cfg> {
+    pub fn with_style(name: &str, cfg: &'cfg Config) -> Progress<'cfg> {
         // report no progress when -q (for quiet) or TERM=dumb are set
         let dumb = match env::var("TERM") {
             Ok(term) => term == "dumb",
@@ -46,7 +45,6 @@ impl<'cfg> Progress<'cfg> {
             state: cfg.shell().err_width().map(|n| State {
                 config: cfg,
                 format: Format {
-                    style,
                     max_width: n,
                     max_print: 80,
                 },
@@ -63,7 +61,7 @@ impl<'cfg> Progress<'cfg> {
     }
 
     pub fn new(name: &str, cfg: &'cfg Config) -> Progress<'cfg> {
-        Self::with_style(name, ProgressStyle::Percentage, cfg)
+        Self::with_style(name, cfg)
     }
 
     pub fn tick(&mut self, cur: usize, max: usize) -> CargoResult<()> {
@@ -151,61 +149,93 @@ impl<'cfg> State<'cfg> {
 }
 
 impl Format {
-    fn progress_status(&self, cur: usize, max: usize, _active: usize, msg: &str) -> Option<String> {
+    fn progress_status(&self, cur: usize, max: usize, _active: usize, msg: &str,) -> Option<String> {
+        // we can use CARGO_STATUS env var to controll status bar format, inspired by Ninja
+        let template_env = env::var("CARGO_STATUS");
+        // %b: progress bar
+        // %s: started jobs
+        // %t: total jobs we have to process to finish the build
+        // %P: progress percentage
+        // %n: job names (", "-seperated list)
+        // %%: single % char
+
+        let status_template: String = match template_env  {
+            Ok(status_template) => { status_template }
+            Err(_) => {
+                // this is the default
+                 String::from("[%b] %s/%t%n")
+             }
+        };
+        let mut template_bare = status_template.clone();
+        let template_original = template_bare.clone();
+        // remove all the parameters so we get the bare skeleton
+        // we need the length of this for formatting
+        for param in &["%b", "%s", "%t", "%n"] {
+            template_bare = template_bare.replace(param, "");
+        }
+
         // Render the percentage at the far right and then figure how long the
         // progress bar is
         let pct = (cur as f64) / (max as f64);
         let pct = if !pct.is_finite() { 0.0 } else { pct };
-        let stats = match self.style {
-            ProgressStyle::Percentage => format!(" {:6.02}%", pct * 100.0),
-            ProgressStyle::Ratio => format!(" {}/{}", cur, max),
-        };
-        let extra_len = stats.len() + 2 /* [ and ] */ + 15 /* status header */;
+        let percentage = format!(" {:6.02}%", pct * 100.0);
+        let stats_len = cur.to_string().len() + max.to_string().len() + template_bare.len() /* remaining chars */;
+        let extra_len = stats_len + 15 /* status header */;
         let display_width = match self.width().checked_sub(extra_len) {
             Some(n) => n,
             None => return None,
         };
 
-        let mut string = String::with_capacity(self.max_width);
-        string.push('[');
+        let mut status: String = status_template;
+        status = status.replace("%s", &cur.to_string());
+        status = status.replace("%t", &max.to_string());
+
+        //let mut string = String::with_capacity(self.max_width);
+
+        let mut progress_bar = String::with_capacity(self.max_width);
         let hashes = display_width as f64 * pct;
         let hashes = hashes as usize;
 
         // Draw the `===>`
         if hashes > 0 {
-            string.push_str(&"=".repeat(hashes-1));
+            progress_bar.push_str(&"=".repeat(hashes-1));
             if cur == max {
-                string.push_str("=");
+                progress_bar.push_str("=");
             } else {
-                string.push_str(">");
+                progress_bar.push_str(">");
             }
         }
 
         // Draw the empty space we have left to do
-        string.push_str(&" ".repeat(display_width - hashes));
-        string.push_str("]");
-        string.push_str(&stats);
-
-        let mut avail_msg_len = self.max_width - self.width();
+        progress_bar.push_str(&" ".repeat(display_width - hashes));
+        //string.push_str("]");
+        //string.push_str(&stats); //   x/y   or   x %
+        let mut active_jobs: String = String::new();
+        let mut avail_msg_len = self.max_width  - (status.len()  +2 /*??*/ + stats_len + progress_bar.len() - 2 ) /* we replace +b */ ; //- self.width();
         let mut ellipsis_pos = 0;
         if avail_msg_len > 3 {
             for c in msg.chars() {
                 let display_width = c.width().unwrap_or(0);
                 if avail_msg_len >= display_width {
                     avail_msg_len -= display_width;
-                    string.push(c);
+                    active_jobs.push(c);
                     if avail_msg_len >= 3 {
-                        ellipsis_pos = string.len();
+                        ellipsis_pos = active_jobs.len();
                     }
                 } else {
-                    string.truncate(ellipsis_pos);
-                    string.push_str("...");
+                    active_jobs.truncate(ellipsis_pos);
+                    active_jobs.push_str("...");
                     break;
                 }
             }
         }
 
-        Some(string)
+        status = status.replace("%b", &progress_bar);
+
+        status = status.replace("%n", &active_jobs);
+
+        //Some(string)
+        Some(status)
     }
 
     fn width(&self) -> usize {
