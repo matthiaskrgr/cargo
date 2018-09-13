@@ -160,7 +160,7 @@ impl Format {
         // %b: progress bar
         // %s: started jobs
         // %t: total jobs we have to process to finish the build
-        // %P: progress percentage
+        // %p: progress percentage
         // %n: job names (", "-seperated list)
         // %%: single % char
 
@@ -170,8 +170,11 @@ impl Format {
         //let template_original = template_bare.clone();
         // remove all the parameters so we get the bare skeleton
         // we need the length of this for formatting
-        for param in &["%b", "%s", "%t", "%n"] {
+
+        let  mut things_stripped = 0; // we need this to know how many params*2 (= chars) we got shorter
+        for param in &["%b", "%s", "%t", "%n", "%P"] {
             template_bare = template_bare.replace(param, "");
+            things_stripped += 1;
         }
 
         // Render the percentage at the far right and then figure how long the
@@ -189,7 +192,7 @@ impl Format {
         let mut status: String = status_template;
         status = status.replace("%s", &cur.to_string());
         status = status.replace("%t", &max.to_string());
-        status = status.replace("%P", &percentage);
+        status = status.replace("%p", &percentage);
 
         //let mut string = String::with_capacity(self.max_width);
 
@@ -212,7 +215,7 @@ impl Format {
         //string.push_str("]");
         //string.push_str(&stats); //   x/y   or   x %
         let mut active_jobs: String = String::new();
-        let mut avail_msg_len = self.max_width  - (status.len()  +2 /*??*/ + stats_len + progress_bar.len() - 2 ) /* we replace +b */ ; //- self.width();
+        let mut avail_msg_len = self.max_width  - (status.len() + stats_len + progress_bar.len() - things_stripped*2 ) /* we replace +b */ ; //- self.width();
         let mut ellipsis_pos = 0;
         if avail_msg_len > 3 {
             for c in msg.chars() {
