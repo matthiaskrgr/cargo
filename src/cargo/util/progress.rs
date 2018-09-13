@@ -231,9 +231,7 @@ impl Format {
 
         // Draw the `===>`
         if hashes > 0 {
-            for _ in 0..hashes - 1 {
-                string.push_str("=");
-            }
+            string.push_str(&"=".repeat(hashes-1));
             if cur == max {
                 string.push_str("=");
             } else {
@@ -242,9 +240,8 @@ impl Format {
         }
 
         // Draw the empty space we have left to do
-        for _ in 0..(display_width - hashes) {
-            string.push_str(" ");
-        }
+        string.push_str(&" ".repeat(display_width - hashes));
+        
         string.push_str("]");
         string.push_str(&stats);
 
