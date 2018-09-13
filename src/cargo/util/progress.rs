@@ -68,7 +68,7 @@ impl<'cfg> Progress<'cfg> {
 
     pub fn tick(&mut self, cur: usize, max: usize) -> CargoResult<()> {
         match self.state {
-            Some(ref mut s) => s.tick(cur, max, "", true),
+            Some(ref mut s) => s.tick(cur, max, 0, "", true),
             None => Ok(()),
         }
     }
@@ -79,16 +79,18 @@ impl<'cfg> Progress<'cfg> {
         }
     }
 
-    pub fn tick_now(&mut self, cur: usize, max: usize, msg: &str) -> CargoResult<()> {
+    pub fn tick_now(&mut self, cur: usize, max: usize, active_names: Vec<String>) -> CargoResult<()> {
+        let active = active_names.len();
+        let msg = &format!(": {}", active_names.join(", "));
         match self.state {
-            Some(ref mut s) => s.tick(cur, max, msg, false),
+            Some(ref mut s) => s.tick(cur, max, active, msg, false),
             None => Ok(()),
         }
     }
 }
 
 impl<'cfg> State<'cfg> {
-    fn tick(&mut self, cur: usize, max: usize, msg: &str, throttle: bool) -> CargoResult<()> {
+    fn tick(&mut self, cur: usize, max: usize, active: usize, msg: &str, throttle: bool) -> CargoResult<()> {
         if self.done {
             return Ok(());
         }
@@ -128,7 +130,7 @@ impl<'cfg> State<'cfg> {
         // Write out a pretty header, then the progress bar itself, and then
         // return back to the beginning of the line for the next print.
         self.try_update_max_width();
-        if let Some(string) = self.format.progress_status(cur, max, msg) {
+        if let Some(string) = self.format.progress_status(cur, max, active, msg) {
             self.config.shell().status_header(&self.name)?;
             write!(self.config.shell().err(), "{}\r", string)?;
         }
@@ -149,7 +151,7 @@ impl<'cfg> State<'cfg> {
 }
 
 impl Format {
-    fn progress_status(&self, cur: usize, max: usize, msg: &str) -> Option<String> {
+    fn progress_status(&self, cur: usize, max: usize, _active: usize, msg: &str) -> Option<String> {
         // Render the percentage at the far right and then figure how long the
         // progress bar is
         let pct = (cur as f64) / (max as f64);
@@ -181,7 +183,6 @@ impl Format {
 
         // Draw the empty space we have left to do
         string.push_str(&" ".repeat(display_width - hashes));
-        
         string.push_str("]");
         string.push_str(&stats);
 
@@ -226,62 +227,62 @@ fn test_progress_status() {
         max_width: 60,
     };
     assert_eq!(
-        format.progress_status(0, 4, ""),
+        format.progress_status(0, 4, 1, ""),
         Some("[                   ] 0/4".to_string())
     );
     assert_eq!(
-        format.progress_status(1, 4, ""),
+        format.progress_status(1, 4, 1, ""),
         Some("[===>               ] 1/4".to_string())
     );
     assert_eq!(
-        format.progress_status(2, 4, ""),
+        format.progress_status(2, 4, 1, ""),
         Some("[========>          ] 2/4".to_string())
     );
     assert_eq!(
-        format.progress_status(3, 4, ""),
+        format.progress_status(3, 4, 1,""),
         Some("[=============>     ] 3/4".to_string())
     );
     assert_eq!(
-        format.progress_status(4, 4, ""),
+        format.progress_status(4, 4, 1, ""),
         Some("[===================] 4/4".to_string())
     );
 
     assert_eq!(
-        format.progress_status(3999, 4000, ""),
+        format.progress_status(3999, 4000, 1, ""),
         Some("[===========> ] 3999/4000".to_string())
     );
     assert_eq!(
-        format.progress_status(4000, 4000, ""),
+        format.progress_status(4000, 4000, 0, ""),
         Some("[=============] 4000/4000".to_string())
     );
 
     assert_eq!(
-        format.progress_status(3, 4, ": short message"),
+        format.progress_status(3, 4, 1, ": short message"),
         Some("[=============>     ] 3/4: short message".to_string())
     );
     assert_eq!(
-        format.progress_status(3, 4, ": msg thats just fit"),
+        format.progress_status(3, 4, 1, ": msg thats just fit"),
         Some("[=============>     ] 3/4: msg thats just fit".to_string())
     );
     assert_eq!(
-        format.progress_status(3, 4, ": msg that's just fit"),
+        format.progress_status(3, 4, 1, ": msg that's just fit"),
         Some("[=============>     ] 3/4: msg that's just...".to_string())
     );
 
     // combining diacritics have width zero and thus can fit max_width.
     let zalgo_msg = "z̸̧̢̗͉̝̦͍̱ͧͦͨ̑̅̌ͥ́͢a̢ͬͨ̽ͯ̅̑ͥ͋̏̑ͫ̄͢͏̫̝̪̤͎̱̣͍̭̞̙̱͙͍̘̭͚l̶̡̛̥̝̰̭̹̯̯̞̪͇̱̦͙͔̘̼͇͓̈ͨ͗ͧ̓͒ͦ̀̇ͣ̈ͭ͊͛̃̑͒̿̕͜g̸̷̢̩̻̻͚̠͓̞̥͐ͩ͌̑ͥ̊̽͋͐̐͌͛̐̇̑ͨ́ͅo͙̳̣͔̰̠̜͕͕̞̦̙̭̜̯̹̬̻̓͑ͦ͋̈̉͌̃ͯ̀̂͠ͅ ̸̡͎̦̲̖̤̺̜̮̱̰̥͔̯̅̏ͬ̂ͨ̋̃̽̈́̾̔̇ͣ̚͜͜h̡ͫ̐̅̿̍̀͜҉̛͇̭̹̰̠͙̞ẽ̶̙̹̳̖͉͎̦͂̋̓ͮ̔ͬ̐̀͂̌͑̒͆̚͜͠ ͓͓̟͍̮̬̝̝̰͓͎̼̻ͦ͐̾̔͒̃̓͟͟c̮̦͍̺͈͚̯͕̄̒͐̂͊̊͗͊ͤͣ̀͘̕͝͞o̶͍͚͍̣̮͌ͦ̽̑ͩ̅ͮ̐̽̏͗́͂̅ͪ͠m̷̧͖̻͔̥̪̭͉͉̤̻͖̩̤͖̘ͦ̂͌̆̂ͦ̒͊ͯͬ͊̉̌ͬ͝͡e̵̹̣͍̜̺̤̤̯̫̹̠̮͎͙̯͚̰̼͗͐̀̒͂̉̀̚͝͞s̵̲͍͙͖̪͓͓̺̱̭̩̣͖̣ͤͤ͂̎̈͗͆ͨͪ̆̈͗͝͠";
     assert_eq!(
-        format.progress_status(3, 4, zalgo_msg),
+        format.progress_status(3, 4, 1, zalgo_msg),
         Some("[=============>     ] 3/4".to_string() + zalgo_msg)
     );
 
     // some non-ASCII ellipsize test
     assert_eq!(
-        format.progress_status(3, 4, "_123456789123456e\u{301}\u{301}8\u{301}90a"),
+        format.progress_status(3, 4, 1, "_123456789123456e\u{301}\u{301}8\u{301}90a"),
         Some("[=============>     ] 3/4_123456789123456e\u{301}\u{301}...".to_string())
     );
     assert_eq!(
-        format.progress_status(3, 4, "：每個漢字佔據了兩個字元"),
+        format.progress_status(3, 4, 1, "：每個漢字佔據了兩個字元"),
         Some("[=============>     ] 3/4：每個漢字佔據了...".to_string())
     );
 }
@@ -294,19 +295,19 @@ fn test_progress_status_percentage() {
         max_width: 60,
     };
     assert_eq!(
-        format.progress_status(0, 77, ""),
+        format.progress_status(0, 77, 1, ""),
         Some("[               ]   0.00%".to_string())
     );
     assert_eq!(
-        format.progress_status(1, 77, ""),
+        format.progress_status(1, 77, 1, ""),
         Some("[               ]   1.30%".to_string())
     );
     assert_eq!(
-        format.progress_status(76, 77, ""),
+        format.progress_status(76, 77, 1, ""),
         Some("[=============> ]  98.70%".to_string())
     );
     assert_eq!(
-        format.progress_status(77, 77, ""),
+        format.progress_status(77, 77, 1, ""),
         Some("[===============] 100.00%".to_string())
     );
 }
@@ -319,7 +320,7 @@ fn test_progress_status_too_short() {
         max_width: 25,
     };
     assert_eq!(
-        format.progress_status(1, 1, ""),
+        format.progress_status(1, 1, 0, ""),
         Some("[] 100.00%".to_string())
     );
 
@@ -329,7 +330,7 @@ fn test_progress_status_too_short() {
         max_width: 24,
     };
     assert_eq!(
-        format.progress_status(1, 1, ""),
+        format.progress_status(1, 1, 0, ""),
         None
     );
 }
