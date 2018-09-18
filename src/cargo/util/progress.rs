@@ -158,10 +158,11 @@ impl<'cfg> State<'cfg> {
 }
 
 impl Format {
-    fn progress_status(&self, cur: usize, max: usize, _active: usize, msg: &str) -> Option<String> {
+    fn progress_status(&self, cur: usize, max: usize, active: usize, msg: &str) -> Option<String> {
         // %b progress bar
         // %s number of done jobs
         // %t number of total jobs
+        // %r number of active (running) jobs
         // %p progress percentage
         // %n list of names of running jobs
 
@@ -170,7 +171,7 @@ impl Format {
          // what is left if we remove all dynamic parameters
          // will be "[] /" for default formatting of "[%b] %s/%t: %n"
         let mut template_skelleton = template.to_string();
-        for fmt in &["%b", "%s", "%t", "%p", "%n"] {
+        for fmt in &["%b", "%s", "%t", "%r", "%p", "%n"] {
             // remove all the formatting specifiers
             template_skelleton = template_skelleton.replace(fmt, "");
         }
@@ -190,6 +191,8 @@ impl Format {
 
         let cur_str = if template.contains("%s") { cur.to_string() } else { String::new() };
         let max_str = if template.contains("%t") { max.to_string() } else { String::new() };
+        let running_str = if template.contains("%r") { active.to_string() } else { String::new() };
+
 
         const STATUS_HEADER_LEN: usize = 15;
         // extra_len is everything without the progress bar and without the jobs_names
@@ -227,6 +230,7 @@ impl Format {
                 + percentage.len()
                 + cur_str.len()
                 + max_str.len()
+                + running_str.len()
                 + 7  /* ?? */);
         let mut ellipsis_pos = 0;
         if avail_msg_len > 3 {
@@ -253,6 +257,7 @@ impl Format {
         string = string.replace("%p", &percentage);
         string = string.replace("%b", &progress_bar);
         string = string.replace("%n", &jobs_names);
+        string = string.replace("%r", &running_str);
 
         Some(string)
     }
