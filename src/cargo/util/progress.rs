@@ -163,15 +163,17 @@ impl Format {
         // %s number of done jobs
         // %t number of total jobs
         // %r number of active (running) jobs
-        // %p progress percentage
+        // %p progress percentage with decimals
+        // %P progress percentage without decimals
         // %n list of names of running jobs
+        // %% percentage sign ('%')
 
         let template = &self.formatting; // what the formatting is supposed to look like
 
          // what is left if we remove all dynamic parameters
-         // will be "[] /" for default formatting of "[%b] %s/%t: %n"
+         // will be "[] /: " for default formatting of "[%b] %s/%t: %n"
         let mut template_skelleton = template.to_string();
-        for fmt in &["%b", "%s", "%t", "%r", "%p", "%n"] {
+        for fmt in &["%b", "%s", "%t", "%r", "%p", "%P", "%n", "%%"] {
             // remove all the formatting specifiers
             template_skelleton = template_skelleton.replace(fmt, "");
         }
@@ -181,22 +183,33 @@ impl Format {
         // Render the percentage at the far right and then figure how long the progress bar is
         let pct = (cur as f64) / (max as f64);
         let pct = if !pct.is_finite() { 0.0 } else { pct };
-        let percentage = if template.contains("%p") { format!("{:6.02}%", pct * 100.0) } else { String::new() };
+
+        let percentage = if template.contains("%p") { format!("{:6.02}", pct * 100.0) } else { String::new() };
+        let percentage_int = if template.contains("%P") { format!("{:4}", (pct * 100.0) as i8) } else { String::new() };
+        let cur_str = if template.contains("%s") { cur.to_string() } else { String::new() };
+        let max_str = if template.contains("%t") { max.to_string() } else { String::new() };
+        let running_str = if template.contains("%r") { active.to_string() } else { String::new() };
+        let percentage_char = if template.contains("%%") { "%".to_string() } else { String::new() };
+
 
         // compile status default looks like this
-        //      Building [=====>                    ] 30/128,
+        //      Building [=====>                    ] 30/128: -fmt
         // |____________|||________________________||| ||    \_
         // status header |    progress bar          `|cur`fmt  max
         // passed via formatting          both passed via formatting
 
-        let cur_str = if template.contains("%s") { cur.to_string() } else { String::new() };
-        let max_str = if template.contains("%t") { max.to_string() } else { String::new() };
-        let running_str = if template.contains("%r") { active.to_string() } else { String::new() };
-
 
         const STATUS_HEADER_LEN: usize = 15;
         // extra_len is everything without the progress bar and without the jobs_names
-        let extra_len =  STATUS_HEADER_LEN + percentage.len() + cur_str.len() + max_str.len()  + /* all other fmt chars: */ template_skelleton.len();
+        let extra_len =  STATUS_HEADER_LEN
+                         + percentage.len()
+                         + percentage_int.len()
+                         + percentage_char.len()
+                         + cur_str.len()
+                         + max_str.len()
+                         + running_str.len()
+                         /* all other fmt chars: */
+                         + template_skelleton.len();
 
         // display_width will determine the length of the progress bar
         let display_width = match self.width().checked_sub(extra_len) {
@@ -226,8 +239,10 @@ impl Format {
         let mut avail_msg_len = self.max_width - (
                 progress_bar.len()
                 + template_skelleton.len()
-                + length_of_formatters /* <- since we replace these */
+                + length_of_formatters
                 + percentage.len()
+                + percentage_char.len()
+                + percentage_int.len()
                 + cur_str.len()
                 + max_str.len()
                 + running_str.len()
@@ -255,9 +270,12 @@ impl Format {
         string = string.replace("%s", &cur_str);
         string = string.replace("%t", &max_str);
         string = string.replace("%p", &percentage);
+        string = string.replace("%P", &percentage_int);
         string = string.replace("%b", &progress_bar);
         string = string.replace("%n", &jobs_names);
         string = string.replace("%r", &running_str);
+        string = string.replace("%%", &percentage_char);
+
 
         Some(string)
     }
@@ -344,7 +362,7 @@ fn test_progress_status() {
 #[test]
 fn test_progress_status_percentage() {
     let format = Format {
-        formatting: "[%b] %p: %n".to_string(),
+        formatting: "[%b] %p%%: %n".to_string(),
         max_print: 42,
         max_width: 60,
     };
@@ -369,7 +387,7 @@ fn test_progress_status_percentage() {
 #[test]
 fn test_progress_status_too_short() {
     let format = Format {
-        formatting: "[%b] %p: %n".to_string(),
+        formatting: "[%b] %p%%: %n".to_string(),
         max_print: 27,
         max_width: 27,
     };
@@ -379,7 +397,7 @@ fn test_progress_status_too_short() {
     );
 
     let format = Format {
-        formatting: "[%b] %p: %n".to_string(),
+        formatting: "[%b] %p%%: %n".to_string(),
         max_print: 26,
         max_width: 26,
     };
