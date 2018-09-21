@@ -276,10 +276,11 @@ impl<'cfg> State<'cfg> {
 }
 
 impl Format {
-    fn progress(&self, cur: usize, max: usize, _active: usize, msg: &str) -> Option<String> {
+    fn progress(&self, cur: usize, max: usize, active: usize, msg: &str) -> Option<String> {
         // %b progress bar
         // %s number of done jobs
         // %t number of total jobs
+        // %r number of active (currently running) jobs
         // %p progress percentage
         // %n list of names of running jobs
 
@@ -287,7 +288,7 @@ impl Format {
          // what is left if we remove all dynamic parameters
          // will be "[] /" for default formatting of "[%b] %s/%t%n"
         let mut template_skelleton = template.to_string();
-        for fmt in &["%b", "%s", "%t", "%p", "%n"] {
+        for fmt in &["%b", "%s", "%t", "%p", "%n", "%r"] {
             // remove all the formatting specifiers
             template_skelleton = template_skelleton.replace(fmt, "");
         }
@@ -305,11 +306,14 @@ impl Format {
         // passed via formatting          both passed via formatting
         let cur_str = if template.contains("%s") { cur.to_string() } else { String::new() };
         let max_str = if template.contains("%t") { max.to_string() } else { String::new() };
+        let running_str = if template.contains("%r") { active.to_string() } else { String::new() };
+
         const STATUS_HEADER_LEN: usize = 15;
         // extra_len is everything without the progress bar and without the jobs_names
-        let extra_len =  STATUS_HEADER_LEN + percentage.len() + cur_str.len() + max_str.len()  + /* all other fmt chars: */ template_skelleton.len();
-        // display_width will determine the length of the progress bar
+        let extra_len = STATUS_HEADER_LEN + percentage.len() + cur_str.len() + max_str.len()
+                        + running_str.len() + /* all other fmt chars: */ template_skelleton.len();
 
+        // display_width will determine the length of the progress bar
         let display_width = match self.width().checked_sub(extra_len) {
             Some(n) => n,
             None => return None,
@@ -340,6 +344,7 @@ impl Format {
                 + percentage.len()
                 + cur_str.len()
                 + max_str.len()
+                + running_str.len()
                 + 7  /* ?? */);
 
         let mut ellipsis_pos = 0;
@@ -365,7 +370,7 @@ impl Format {
         string = string.replace("%p", &percentage);
         string = string.replace("%b", &progress_bar);
         string = string.replace("%n", &jobs_names);
-
+        string = string.replace("%r", &running_str);
 
         Some(string)
     }
