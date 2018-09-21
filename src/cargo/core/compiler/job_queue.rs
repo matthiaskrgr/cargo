@@ -236,7 +236,7 @@ impl<'a> JobQueue<'a> {
         //       reproducing rustc's styling of error messages which is
         //       currently a pretty big task. This is issue #5695.
         let mut error = None;
-        let mut progress = Progress::with_style("Building", cx.bcx.config);
+        let mut progress = Progress::with_custom_style("Building", cx.bcx.config);
         let total = self.queue.len();
         loop {
             // Dequeue as much work as we can, learning about everything
@@ -285,7 +285,7 @@ impl<'a> JobQueue<'a> {
             let active_names = self.active.iter()
                 .map(Key::name_for_progress)
                 .collect::<Vec<_>>();
-            drop(progress.tick_now(count, total, active_names));
+            drop(progress.tick_now(count, total, active_names, false /*force-render jobs*/));
             let event = self.rx.recv().unwrap();
             progress.clear();
 
