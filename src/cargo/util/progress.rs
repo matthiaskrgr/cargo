@@ -315,7 +315,7 @@ impl Format {
         // what is left if we remove all dynamic parameters
         // will be "[] /: " for default formatting of "[%b] %f/%t: %n"
         let mut template_skelleton = template.to_string();
-        for fmt in &["%b", "%f", "%t", "%p", "%P", "%%", "%n", "%r", "%s", "%u"] {
+        for fmt in &["%b", "%f", "%t", "%p", "%P", "%n", "%r", "%s", "%u", "%%"] {
             // remove all the formatting specifiers
             template_skelleton = template_skelleton.replace(fmt, "");
         }
@@ -449,12 +449,12 @@ impl Format {
             .replace("%t", &max_str)
             .replace("%p", &percentage)
             .replace("%P", &percentage_int)
-            .replace("%%", &percentage_char)
             .replace("%b", &progress_bar)
             .replace("%n", &jobs_names)
             .replace("%r", &running_str)
             .replace("%s", &started_str)
-            .replace("%u", &remaining_str);
+            .replace("%u", &remaining_str)
+            .replace("%%", &percentage_char);
 
         Some(progress_line)
     }
@@ -736,6 +736,26 @@ fn test_progress_status_format_standalone() {
             "Hello world, let's make this a bit longer actually..."
         ),
         Some("Hello world, let\'s make this a bit longer actual...".to_string())
+    );
+    // make sure that in %%r, the we first evaluate %r and then %%
+    let format = Format {
+        formatting: "%%r".to_string(),
+        max_print: 42,
+        max_width: 60,
+    };
+    assert_eq!(
+        format.progress_status(5, 10, 3, "foo"),
+        Some("%3".to_string())
+    );
+
+    let format = Format {
+        formatting: "%%r%%%".to_string(),
+        max_print: 42,
+        max_width: 60,
+    };
+    assert_eq!(
+        format.progress_status(5, 10, 3, "foo"),
+        Some("%3%%".to_string())
     );
 }
 
