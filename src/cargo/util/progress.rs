@@ -3,7 +3,7 @@ use std::env;
 use std::time::{Duration, Instant};
 
 use core::shell::Verbosity;
-use util::{CargoResult, Config};
+use util::{self, CargoResult, Config};
 
 use unicode_width::UnicodeWidthChar;
 
@@ -33,6 +33,7 @@ struct Format {
     formatting: String,
     max_width: usize,
     max_print: usize,
+    start_time: Instant,
 }
 
 impl<'cfg> Progress<'cfg> {
@@ -62,6 +63,7 @@ impl<'cfg> Progress<'cfg> {
                     formatting: format_template,
                     max_width: n,
                     max_print: 80,
+                    start_time: cfg.creation_time(),
                 },
                 name: name.to_string(),
                 done: false,
@@ -89,6 +91,7 @@ impl<'cfg> Progress<'cfg> {
                     formatting: "[%b], %f/t: %n".to_string(),
                     max_width: n,
                     max_print: 80,
+                    start_time: cfg.creation_time(),
                 },
                 name: name.to_string(),
                 done: false,
@@ -116,6 +119,7 @@ impl<'cfg> Progress<'cfg> {
                     formatting: "[%b] %p%%%n".to_string(),
                     max_width: n,
                     max_print: 80,
+                    start_time: cfg.creation_time(),
                 },
                 name: name.to_string(),
                 done: false,
@@ -309,13 +313,21 @@ impl Format {
         // %P progress percentage without decimals
         // %% plain '%' character
         // %n list of names of running jobs
+        // %e elapsed time in seconds
+        // %E elapsed time (human readable)
+        // %o overall time per job
+        // %O overall time per job (human readable)
+        // %c jobs done per second
 
         let template = &self.formatting; // what the formatting is supposed to look like
 
         // what is left if we remove all dynamic parameters
         // will be "[] /: " for default formatting of "[%b] %f/%t: %n"
         let mut template_skelleton = template.to_string();
-        for fmt in &["%b", "%f", "%t", "%p", "%P", "%n", "%r", "%s", "%u", "%%"] {
+        for fmt in &[
+            "%b", "%f", "%t", "%p", "%P", "%n", "%r", "%s", "%u", "%e", "%E", "%o", "%O", "%c",
+            "%%",
+        ] {
             // remove all the formatting specifiers
             template_skelleton = template_skelleton.replace(fmt, "");
         }
@@ -364,6 +376,39 @@ impl Format {
         } else {
             String::new()
         };
+        let elapsed_sec_str = if template.contains("%e") {
+            self.start_time.elapsed().as_secs().to_string()
+        } else {
+            String::new()
+        };
+        let elapsed_humread_str = if template.contains("%E") {
+            util::elapsed(self.start_time.elapsed())
+        } else {
+            String::new()
+        };
+        let time_per_job_sec_str = if template.contains("%o") {
+            (self.start_time.elapsed().as_secs() / (if cur == 0 { 1 } else { cur } as u64))
+                .to_string()
+        } else {
+            String::new()
+        };
+        let time_per_job_human_readable_str = if template.contains("%O") {
+            util::elapsed(self.start_time.elapsed() / (if cur == 0 { 1 } else { cur } as u32))
+        } else {
+            String::new()
+        };
+        let jobs_per_sec_str = if template.contains("%c") {
+            format!(
+                "{:2.02}",
+                (cur as f32 / if self.start_time.elapsed().as_secs() == 0 {
+                    1_f32
+                } else {
+                    self.start_time.elapsed().as_secs() as f32
+                })
+            )
+        } else {
+            String::new()
+        };
         // compile status default looks like this
         //      Building [=====>                    ] 30/128: --,
         // |____________|||________________________||| ||   `\_  `fmt
@@ -381,6 +426,11 @@ impl Format {
                         + running_str.len()
                         + started_str.len()
                         + remaining_str.len()
+                        + elapsed_sec_str.len()
+                        + elapsed_humread_str.len()
+                        + time_per_job_sec_str.len()
+                        + time_per_job_human_readable_str.len()
+                        + jobs_per_sec_str.len()
                         /* all other fmt chars: */
                         + template_skelleton.len();
 
@@ -424,6 +474,11 @@ impl Format {
                     + running_str.len()
                     + started_str.len()
                     + remaining_str.len()
+                    + elapsed_sec_str.len()
+                    + elapsed_humread_str.len()
+                    + time_per_job_sec_str.len()
+                    + time_per_job_human_readable_str.len()
+                    + jobs_per_sec_str.len()
                     + 7);
 
             let mut ellipsis_pos = 0;
@@ -454,8 +509,12 @@ impl Format {
             .replace("%r", &running_str)
             .replace("%s", &started_str)
             .replace("%u", &remaining_str)
-            .replace("%%", &percentage_char);
-
+            .replace("%%", &percentage_char)
+            .replace("%e", &elapsed_sec_str)
+            .replace("%E", &elapsed_humread_str)
+            .replace("%o", &time_per_job_sec_str)
+            .replace("%O", &time_per_job_human_readable_str)
+            .replace("%c", &jobs_per_sec_str);
         Some(progress_line)
     }
 
@@ -505,6 +564,7 @@ fn test_progress_status() {
         formatting: "[%b] %f/%t: %n".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(0, 4, 1, ""),
@@ -573,6 +633,7 @@ fn test_progress_status_percentage() {
         formatting: "[%b] %p%%: %n".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(0, 77, 1, ""),
@@ -598,6 +659,7 @@ fn test_progress_status_too_short() {
         formatting: "[%b] %p%%: %n".to_string(),
         max_print: 27,
         max_width: 27,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(1, 1, 0, ""),
@@ -608,6 +670,7 @@ fn test_progress_status_too_short() {
         formatting: "[%b] %p%%: %n".to_string(),
         max_print: 26,
         max_width: 26,
+        start_time: Instant::now(),
     };
     assert_eq!(format.progress_status(1, 1, 1, ""), None);
 }
@@ -619,6 +682,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%b".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 1, ""),
@@ -629,6 +693,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%s".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(format.progress_status(5, 10, 1, ""), Some("6".to_string()));
     // finished jobs (5 done)
@@ -636,6 +701,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%f".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 1, "this is a test"),
@@ -646,6 +712,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%t".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(format.progress_status(5, 10, 1, ""), Some("10".to_string()));
     // remaining jobs
@@ -653,6 +720,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%u".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(format.progress_status(5, 10, 1, ""), Some("4".to_string()));
     // running jobs (bumped to 3)
@@ -660,6 +728,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%r".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(format.progress_status(5, 10, 3, ""), Some("3".to_string()));
 
@@ -668,6 +737,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%p".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, ""),
@@ -678,6 +748,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%P".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, ""),
@@ -689,6 +760,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%%".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(format.progress_status(5, 10, 3, ""), Some("%".to_string()));
     // percentage with sign
@@ -696,6 +768,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%P%%".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, ""),
@@ -707,6 +780,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%%%%%%%".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, ""),
@@ -717,6 +791,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%n".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, "Hello world!"),
@@ -727,6 +802,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%n".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(
@@ -742,6 +818,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%%r".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, "foo"),
@@ -752,6 +829,7 @@ fn test_progress_status_format_standalone() {
         formatting: "%%r%%%".to_string(),
         max_print: 42,
         max_width: 60,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(5, 10, 3, "foo"),
@@ -766,6 +844,7 @@ fn test_progress_status_very_long() {
         formatting: "foo [%b]  %f/%r/%t (%p%%)  || {%s,%u,%r,%P}: [%n] bar".to_string(),
         max_print: 70,
         max_width: 130,
+        start_time: Instant::now(),
     };
     assert_eq!(
         format.progress_status(50, 100, 5, "This is quite a long message with many characters, will it fit?"),
